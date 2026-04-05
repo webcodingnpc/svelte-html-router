@@ -1,16 +1,18 @@
 # svelte-html-router
 
-轻量级 Svelte 5 路由器，支持 **history 模式**和 **hash 模式**、动态参数、导航守卫。
+A lightweight Svelte 5 router supporting **history mode** and **hash mode**, dynamic parameters, and navigation guards.
 
-## 安装
+[中文文档](./README.zh-CN.md)
+
+## Installation
 
 ```bash
 npm install svelte-html-router
 ```
 
-## 快速开始
+## Quick Start
 
-### 1. 定义路由
+### 1. Define Routes
 
 ```ts
 import { createRouter } from 'svelte-html-router'
@@ -19,7 +21,7 @@ import About from './pages/About.svelte'
 import UserDetail from './pages/UserDetail.svelte'
 import NotFound from './pages/NotFound.svelte'
 
-// history 模式（默认）
+// History mode (default)
 export const router = createRouter({
     routes: [
         { path: '/', name: 'home', component: Home },
@@ -30,17 +32,17 @@ export const router = createRouter({
     mode: 'history',
 })
 
-// hash 模式
+// Hash mode
 export const router = createRouter({
     routes: [...],
     mode: 'hash',
 })
 
-// 向后兼容：直接传路由数组（默认 history 模式）
+// Shorthand: pass route array directly (defaults to history mode)
 export const router = createRouter([...])
 ```
 
-### 2. 挂载路由视图
+### 2. Mount Router View
 
 ```svelte
 <!-- App.svelte -->
@@ -54,8 +56,8 @@ export const router = createRouter([...])
 </script>
 
 <nav>
-  <RouterLink to="/">首页</RouterLink>
-  <RouterLink to="/about">关于</RouterLink>
+  <RouterLink to="/">Home</RouterLink>
+  <RouterLink to="/about">About</RouterLink>
 </nav>
 
 <RouterView {router} />
@@ -65,130 +67,130 @@ export const router = createRouter([...])
 
 ### `createRouter(options: RouterOptions | RouteRecord[])`
 
-创建路由实例。支持两种调用方式：
+Creates a router instance. Supports two calling styles:
 
 ```ts
-// 完整配置
+// Full configuration
 const router = createRouter({
     routes: [...],
-    mode: 'history',  // 'history' | 'hash'，默认 'history'
-    base: '/app',     // base 路径前缀（仅 history 模式有效）
+    mode: 'history',  // 'history' | 'hash', default 'history'
+    base: '/app',     // base path prefix (history mode only)
 })
 
-// 简写（直接传路由数组，默认 history 模式）
+// Shorthand (pass route array directly, defaults to history mode)
 const router = createRouter([...])
 ```
 
-**RouterOptions：**
+**RouterOptions:**
 
-| 属性 | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `routes` | `RouteRecord[]` | — | 路由表（必填） |
-| `mode` | `'history' \| 'hash'` | `'history'` | 路由模式 |
-| `base` | `string` | `''` | 路径前缀（仅 history 模式） |
+| Property | Type | Default | Description |
+|----------|------|---------|-------------|
+| `routes` | `RouteRecord[]` | — | Route table (required) |
+| `mode` | `'history' \| 'hash'` | `'history'` | Router mode |
+| `base` | `string` | `''` | Path prefix (history mode only) |
 
-**RouteRecord：**
+**RouteRecord:**
 
-| 属性 | 类型 | 说明 |
-|---|---|---|
-| `path` | `string` | 路径，支持 `:param` 动态参数和 `*` 通配 |
-| `name` | `string` | 路由名称（可选） |
-| `component` | `SvelteComponent` | 对应组件 |
-| `meta` | `Record<string, any>` | 路由元信息（可选） |
-| `redirect` | `string` | 重定向目标路径（可选） |
+| Property | Type | Description |
+|----------|------|-------------|
+| `path` | `string` | Path, supports `:param` dynamic segments and `*` wildcard |
+| `name` | `string` | Route name (optional) |
+| `component` | `SvelteComponent` | Corresponding component |
+| `meta` | `Record<string, any>` | Route metadata (optional) |
+| `redirect` | `string` | Redirect target path (optional) |
 
-**返回值（RouterInstance）：**
+**Return Value (RouterInstance):**
 
-| 属性/方法 | 说明 |
-|---|---|
-| `current` | `Readable<RouteLocation>` — 当前路由的响应式 store |
-| `routes` | 路由表 |
-| `mode` | 当前路由模式（`'history'` 或 `'hash'`） |
-| `push(path)` | 导航到指定路径（新增历史记录） |
-| `replace(path)` | 导航到指定路径（替换当前历史记录） |
-| `back()` | 浏览器后退 |
-| `forward()` | 浏览器前进 |
-| `go(n)` | 前进/后退 n 步 |
-| `beforeEach(guard)` | 注册全局前置守卫，返回移除函数 |
-| `buildHref(path)` | 构建完整 href（hash 模式返回 `#/path`，history 模式返回 `/path`） |
-| `init()` | 初始化路由（监听 popstate/hashchange + 链接拦截 + 首次导航） |
-| `destroy()` | 销毁路由（移除所有监听） |
+| Property / Method | Description |
+|-------------------|-------------|
+| `current` | `Readable<RouteLocation>` — reactive store for current route |
+| `routes` | Route table |
+| `mode` | Current router mode (`'history'` or `'hash'`) |
+| `push(path)` | Navigate to path (adds history entry) |
+| `replace(path)` | Navigate to path (replaces current history entry) |
+| `back()` | Go back |
+| `forward()` | Go forward |
+| `go(n)` | Go forward / backward n steps |
+| `beforeEach(guard)` | Register global navigation guard, returns removal function |
+| `buildHref(path)` | Build full href (`#/path` for hash, `/path` for history) |
+| `init()` | Initialize router (listeners + link interception + first navigation) |
+| `destroy()` | Destroy router (remove all listeners) |
 
 ### `RouteLocation`
 
 ```ts
 interface RouteLocation {
-    path: string                    // 当前路径
-    name: string                    // 路由名称
-    params: Record<string, string>  // 动态参数
-    query: Record<string, string>   // 查询参数
-    meta: Record<string, any>       // 路由元信息
-    matched: RouteRecord | null     // 匹配的路由记录
+    path: string                    // Current path
+    name: string                    // Route name
+    params: Record<string, string>  // Dynamic parameters
+    query: Record<string, string>   // Query parameters
+    meta: Record<string, any>       // Route metadata
+    matched: RouteRecord | null     // Matched route record
 }
 ```
 
 ### `<RouterView>`
 
-路由出口组件，渲染当前匹配的路由组件。
+Route outlet component. Renders the current matched route component.
 
-| Props | 类型 | 必填 | 说明 |
-|---|---|---|---|
-| `router` | `RouterInstance` | ✅ | 路由实例 |
+| Props | Type | Required | Description |
+|-------|------|----------|-------------|
+| `router` | `RouterInstance` | Yes | Router instance |
 
-`RouterView` 会通过 Svelte context 将 `router` 传递给子组件，因此 `RouterLink` 无需手动传入 `router`。
+`RouterView` passes the `router` to child components via Svelte context, so `RouterLink` doesn't need a manual `router` prop.
 
 ### `<RouterLink>`
 
-导航链接组件，自动高亮当前活跃路由。
+Navigation link component with automatic active state highlighting.
 
-| Props | 类型 | 默认值 | 说明 |
-|---|---|---|---|
-| `to` | `string` | — | 目标路径（必填） |
-| `class` | `string` | `''` | 自定义 class |
-| `activeClass` | `string` | `'router-link-active'` | 活跃状态 class |
-| `router` | `RouterInstance` | — | 路由实例（可选，默认从 context 获取） |
+| Props | Type | Default | Description |
+|-------|------|---------|-------------|
+| `to` | `string` | — | Target path (required) |
+| `class` | `string` | `''` | Custom class |
+| `activeClass` | `string` | `'router-link-active'` | Active state class |
+| `router` | `RouterInstance` | — | Router instance (optional, defaults from context) |
 
-### 导航守卫
+### Navigation Guards
 
 ```ts
 router.beforeEach((to, from) => {
-    // 返回 false 阻止导航
+    // Return false to cancel navigation
     if (to.path === '/admin' && !isLogin) return false
 
-    // 返回字符串重定向
+    // Return string to redirect
     if (to.path === '/old') return '/new'
 
-    // 返回 undefined 放行
+    // Return undefined to allow navigation
 })
 ```
 
-## 特性
+## Features
 
-- **双模式**：支持 history 模式（`history.pushState`，干净 URL）和 hash 模式（`#/path` 格式）
-- **动态参数**：`/user/:id` 自动解析到 `params.id`
-- **查询参数**：自动解析 `?key=value` 到 `query`
-- **导航守卫**：支持异步守卫、重定向、阻止导航
-- **链接拦截**：自动拦截 `<a>` 标签点击，内部路由走客户端导航
-- **通配路由**：`path: '*'` 匹配所有未命中路由（404）
-- **重定向**：路由配置 `redirect` 字段自动重定向
-- **Base 路径**：history 模式支持 `base` 配置，适配子目录部署
-- **Svelte 5**：基于 Svelte 5 runes + stores
+- **Dual mode** — history mode (`history.pushState`, clean URLs) and hash mode (`#/path`)
+- **Dynamic parameters** — `/user/:id` auto-parsed to `params.id`
+- **Query parameters** — `?key=value` auto-parsed to `query`
+- **Navigation guards** — async guards, redirect, cancel
+- **Link interception** — automatically intercepts `<a>` tag clicks for client-side navigation
+- **Wildcard routes** — `path: '*'` catches all unmatched routes (404)
+- **Redirect** — route-level `redirect` field
+- **Base path** — history mode supports `base` config for subdirectory deployment
+- **Svelte 5** — built on Svelte 5 runes + stores
 
-## 路由模式对比
+## Route Mode Comparison
 
-| 特性 | History 模式 | Hash 模式 |
-|---|---|---|
-| URL 格式 | `/about` | `#/about` |
-| 服务器配置 | 需要配置重写规则 | 不需要 |
-| SEO | 支持 | 不支持 |
-| 浏览器事件 | `popstate` | `hashchange` |
-| 适用场景 | 正式网站、需要 SEO | 快速部署、GitHub Pages |
+| Feature | History Mode | Hash Mode |
+|---------|-------------|-----------|
+| URL format | `/about` | `#/about` |
+| Server config | Requires rewrite rules | Not needed |
+| SEO | Supported | Not supported |
+| Browser event | `popstate` | `hashchange` |
+| Use case | Production sites, SEO needed | Quick deploy, GitHub Pages |
 
-## 服务器部署
+## Server Deployment
 
-### History 模式
+### History Mode
 
-History 模式使用 `history.pushState` 管理 URL，刷新页面时服务器需要将所有路由请求重写到 `index.html`。
+History mode uses `history.pushState` to manage URLs. On page refresh, the server needs to rewrite all route requests to `index.html`.
 
 #### Nginx
 
@@ -205,7 +207,7 @@ server {
 }
 ```
 
-#### 子目录部署（如 `/app/`）
+#### Subdirectory deployment (e.g. `/app/`)
 
 ```nginx
 location /app/ {
@@ -213,7 +215,7 @@ location /app/ {
 }
 ```
 
-路由配置：
+Router config:
 
 ```ts
 const router = createRouter({
@@ -245,7 +247,6 @@ const app = express()
 
 app.use(express.static(path.join(__dirname, 'dist')))
 
-// 所有路由都返回 index.html
 app.get('*', (req, res) => {
     res.sendFile(path.join(__dirname, 'dist', 'index.html'))
 })
@@ -253,19 +254,9 @@ app.get('*', (req, res) => {
 app.listen(3000)
 ```
 
-#### Caddy
+### Hash Mode
 
-```
-example.com {
-    root * /var/www/html
-    try_files {path} /index.html
-    file_server
-}
-```
-
-### Hash 模式
-
-Hash 模式无需任何服务器配置，只需将静态文件部署到任意 Web 服务器即可。适合 GitHub Pages、Netlify 等静态托管服务。
+Hash mode requires no server configuration. Simply deploy static files to any web server. Suitable for GitHub Pages, Netlify, and other static hosting services.
 
 ```ts
 const router = createRouter({
