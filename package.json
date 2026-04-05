@@ -1,0 +1,46 @@
+{
+    "name": "svelte-html-router",
+    "version": "1.0.0",
+    "type": "module",
+    "description": "轻量级 Svelte 5 路由器，支持 history/hash 双模式、动态参数、导航守卫",
+    "keywords": [
+        "svelte",
+        "svelte5",
+        "router",
+        "spa",
+        "history",
+        "hash"
+    ],
+    "license": "MIT",
+    "author": "free-walk",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/webcodingnpc/svelte-html-router.git"
+    },
+    "svelte": "./src/index.ts",
+    "main": "./dist/svelte-html-router.cjs",
+    "module": "./dist/svelte-html-router.mjs",
+    "exports": {
+        ".": {
+            "svelte": "./src/index.ts",
+            "import": "./dist/svelte-html-router.mjs",
+            "require": "./dist/svelte-html-router.cjs",
+            "default": "./dist/svelte-html-router.mjs"
+        }
+    },
+    "files": [
+        "dist",
+        "src",
+        "README.md"
+    ],
+    "scripts": {
+        "build": "node scripts/build.js"
+    },
+    "peerDependencies": {
+        "svelte": "^5.0.0"
+    },
+    "devDependencies": {
+        "esbuild": "^0.27.4",
+        "svelte": "^5.55.1"
+    }
+}
