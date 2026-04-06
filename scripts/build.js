@@ -1,5 +1,5 @@
 import * as esbuild from 'esbuild'
-import { compile, preprocess } from 'svelte/compiler'
+import { compile, compileModule, preprocess } from 'svelte/compiler'
 import { transform } from 'esbuild'
 import path from 'path'
 import fs from 'fs'
@@ -14,12 +14,35 @@ function sveltePlugin() {
     return {
         name: 'svelte',
         setup(build) {
-            build.onResolve({ filter: /\.svelte$/ }, (args) => ({
-                path: path.isAbsolute(args.path)
+            build.onResolve({ filter: /\.svelte$/ }, (args) => {
+                const resolved = path.isAbsolute(args.path)
                     ? args.path
-                    : path.resolve(args.resolveDir, args.path),
-                namespace: 'file',
-            }))
+                    : path.resolve(args.resolveDir, args.path)
+
+                if (fs.existsSync(resolved + '.ts')) {
+                    return { path: resolved + '.ts', namespace: 'file' }
+                }
+                return { path: resolved, namespace: 'file' }
+            })
+
+            // 编译 .svelte.ts 模块文件
+            build.onLoad({ filter: /\.svelte\.ts$/ }, async (args) => {
+                const source = fs.readFileSync(args.path, 'utf-8')
+                const tsResult = await transform(source, {
+                    loader: 'ts',
+                    tsconfigRaw: '{ "compilerOptions": { "verbatimModuleSyntax": true } }',
+                })
+                const compiled = compileModule(tsResult.code, {
+                    filename: args.path,
+                    generate: 'client',
+                    dev: false,
+                })
+                return {
+                    contents: compiled.js.code,
+                    loader: 'js',
+                    resolveDir: path.dirname(args.path),
+                }
+            })
 
             build.onLoad({ filter: /\.svelte$/ }, async (args) => {
                 const source = fs.readFileSync(args.path, 'utf-8')

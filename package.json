@@ -1,6 +1,6 @@
 {
     "name": "svelte-html-router",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "type": "module",
     "description": "轻量级 Svelte 5 路由器，支持 history/hash 双模式、动态参数、导航守卫",
     "keywords": [
