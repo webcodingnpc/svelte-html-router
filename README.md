@@ -1,6 +1,6 @@
 # svelte-html-router
 
-A lightweight Svelte 5 router supporting **history mode** and **hash mode**, dynamic parameters, and navigation guards.
+A lightweight Svelte 5 router supporting **history mode** and **hash mode**, **nested routes** (like Vue Router), dynamic parameters, and navigation guards.
 
 [中文文档](./README.zh-CN.md)
 
@@ -12,41 +12,69 @@ npm install svelte-html-router
 
 ## Quick Start
 
-### 1. Define Routes
+### 1. Define Routes with Nesting
 
 ```ts
 import { createRouter } from 'svelte-html-router'
+import App from './App.svelte'
 import Home from './pages/Home.svelte'
 import About from './pages/About.svelte'
-import UserDetail from './pages/UserDetail.svelte'
+import Dashboard from './pages/Dashboard.svelte'
+import DashboardIndex from './pages/dashboard/Index.svelte'
+import Settings from './pages/dashboard/Settings.svelte'
+import Profile from './pages/dashboard/Profile.svelte'
 import NotFound from './pages/NotFound.svelte'
 
-// History mode (default)
+// Define routes with nested structure (like Vue Router)
 export const router = createRouter({
     routes: [
-        { path: '/', name: 'home', component: Home },
-        { path: '/about', name: 'about', component: About },
-        { path: '/user/:id', name: 'user', component: UserDetail },
-        { path: '*', name: 'not-found', component: NotFound },
+        {
+            path: '/',
+            name: 'home',
+            component: Home,
+        },
+        {
+            path: '/about',
+            name: 'about',
+            component: About,
+        },
+        {
+            path: '/dashboard',
+            name: 'dashboard',
+            component: Dashboard,
+            children: [
+                {
+                    path: 'index',
+                    name: 'dashboard-home',
+                    component: DashboardIndex,
+                },
+                {
+                    path: 'settings',
+                    name: 'dashboard-settings',
+                    component: Settings,
+                },
+                {
+                    path: 'profile/:id',
+                    name: 'dashboard-profile',
+                    component: Profile,
+                },
+            ],
+        },
+        {
+            path: '*',
+            name: 'not-found',
+            component: NotFound,
+        },
     ],
-    mode: 'history',
+    mode: 'history', // or 'hash'
 })
-
-// Hash mode
-export const router = createRouter({
-    routes: [...],
-    mode: 'hash',
-})
-
-// Shorthand: pass route array directly (defaults to history mode)
-export const router = createRouter([...])
 ```
 
-### 2. Mount Router View
+### 2. Mount Router
 
 ```svelte
 <!-- App.svelte -->
-<script>
+<script lang="ts">
   import { RouterView, RouterLink } from 'svelte-html-router'
   import { router } from './routes'
   import { onMount, onDestroy } from 'svelte'
@@ -58,26 +86,107 @@ export const router = createRouter([...])
 <nav>
   <RouterLink to="/">Home</RouterLink>
   <RouterLink to="/about">About</RouterLink>
+  <RouterLink to="/dashboard/index">Dashboard</RouterLink>
 </nav>
 
+<!-- Main route outlet -->
 <RouterView {router} />
 ```
 
-## API
+### 3. Use Nested RouterView
+
+```svelte
+<!-- Dashboard.svelte -->
+<script>
+  import { RouterView } from 'svelte-html-router'
+</script>
+
+<div class="dashboard-layout">
+  <aside class="sidebar">
+    <a href="/dashboard/index">Dashboard Home</a>
+    <a href="/dashboard/settings">Settings</a>
+    <a href="/dashboard/profile/123">My Profile</a>
+  </aside>
+
+  <main class="content">
+    <!-- Nested route outlet -->
+    <RouterView />
+  </main>
+</div>
+```
+
+## Nested Routes (vs Vue Router)
+
+### Structure Comparison
+
+**Vue Router:**
+
+```ts
+// Vue Router nested routes
+const routes = [
+  {
+    path: '/admin',
+    component: AdminLayout,
+    children: [
+      { path: 'users', component: Users },
+      { path: 'posts', component: Posts },
+    ]
+  }
+]
+```
+
+**svelte-html-router:**
+
+```ts
+// Same nesting structure - exactly like Vue Router!
+const routes = [
+  {
+    path: '/admin',
+    component: AdminLayout,
+    children: [
+      { path: 'users', component: Users },
+      { path: 'posts', component: Posts },
+    ]
+  }
+]
+```
+
+### How It Works
+
+1. When navigating to `/admin/users`:
+   - Router finds `/admin` (matches first segment)
+   - Then searches `children` for `users`
+   - Returns matched route chain: `[AdminLayout, Users]`
+
+2. Components render in cascade:
+   - **Parent** `AdminLayout` renders via first `<RouterView>`
+   - **Child** `Users` renders via nested `<RouterView>` inside `AdminLayout`
+
+3. Nested `<RouterView>` automatically knows its nesting level:
+   ```svelte
+   <!-- App.svelte (nesting level 0) -->
+   <RouterView {router} />
+   
+   <!-- AdminLayout.svelte (nesting level 1) -->
+   <RouterView />
+   
+   <!-- SettingsLayout.svelte (nesting level 2) -->
+   <RouterView />
+   ```
+
+## API Reference
 
 ### `createRouter(options: RouterOptions | RouteRecord[])`
-
-Creates a router instance. Supports two calling styles:
 
 ```ts
 // Full configuration
 const router = createRouter({
     routes: [...],
-    mode: 'history',  // 'history' | 'hash', default 'history'
-    base: '/app',     // base path prefix (history mode only)
+    mode: 'history',
+    base: '/app',
 })
 
-// Shorthand (pass route array directly, defaults to history mode)
+// Shorthand (defaults to history mode)
 const router = createRouter([...])
 ```
 
@@ -95,26 +204,27 @@ const router = createRouter([...])
 |----------|------|-------------|
 | `path` | `string` | Path, supports `:param` dynamic segments and `*` wildcard |
 | `name` | `string` | Route name (optional) |
-| `component` | `SvelteComponent` | Corresponding component |
+| `component` | `SvelteComponent` | Corresponding component (optional for grouping routes) |
+| `children` | `RouteRecord[]` | Nested routes (optional) |
 | `meta` | `Record<string, any>` | Route metadata (optional) |
 | `redirect` | `string` | Redirect target path (optional) |
 
-**Return Value (RouterInstance):**
+### `RouterInstance` (return value of `createRouter`)
 
 | Property / Method | Description |
 |-------------------|-------------|
 | `current` | `Readable<RouteLocation>` — reactive store for current route |
 | `routes` | Route table |
-| `mode` | Current router mode (`'history'` or `'hash'`) |
+| `mode` | Current router mode |
 | `push(path)` | Navigate to path (adds history entry) |
 | `replace(path)` | Navigate to path (replaces current history entry) |
 | `back()` | Go back |
 | `forward()` | Go forward |
 | `go(n)` | Go forward / backward n steps |
-| `beforeEach(guard)` | Register global navigation guard, returns removal function |
-| `buildHref(path)` | Build full href (`#/path` for hash, `/path` for history) |
-| `init()` | Initialize router (listeners + link interception + first navigation) |
-| `destroy()` | Destroy router (remove all listeners) |
+| `beforeEach(guard)` | Register global navigation guard |
+| `buildHref(path)` | Build full href |
+| `init()` | Initialize router |
+| `destroy()` | Destroy router |
 
 ### `RouteLocation`
 
@@ -125,81 +235,87 @@ interface RouteLocation {
     params: Record<string, string>  // Dynamic parameters
     query: Record<string, string>   // Query parameters
     meta: Record<string, any>       // Route metadata
-    matched: RouteRecord | null     // Matched route record
+    matched: RouteRecord[]          // Route chain (for nested routes)
 }
 ```
 
 ### `<RouterView>`
 
-Route outlet component. Renders the current matched route component.
+Route outlet component.
+
+```svelte
+<!-- Top-level -->
+<RouterView {router} />
+
+<!-- Inside nested component (automatically inherits nesting level) -->
+<RouterView />
+```
 
 | Props | Type | Required | Description |
 |-------|------|----------|-------------|
-| `router` | `RouterInstance` | Yes | Router instance |
-
-`RouterView` passes the `router` to child components via Svelte context, so `RouterLink` doesn't need a manual `router` prop.
+| `router` | `RouterInstance` | No* | Router instance (*required at root level) |
+| `name` | `string` | No | Filter by route name (optional) |
 
 ### `<RouterLink>`
 
-Navigation link component with automatic active state highlighting.
+Navigation link with automatic active state.
+
+```svelte
+<RouterLink to="/about">About</RouterLink>
+<RouterLink to="/dashboard/settings" class="nav-link" activeClass="active">
+  Settings
+</RouterLink>
+```
 
 | Props | Type | Default | Description |
 |-------|------|---------|-------------|
 | `to` | `string` | — | Target path (required) |
 | `class` | `string` | `''` | Custom class |
 | `activeClass` | `string` | `'router-link-active'` | Active state class |
-| `router` | `RouterInstance` | — | Router instance (optional, defaults from context) |
+| `router` | `RouterInstance` | — | Router instance (optional, uses context) |
 
 ### Navigation Guards
 
 ```ts
-router.beforeEach((to, from) => {
+// Register guard before initialization
+const removeGuard = router.beforeEach((to, from) => {
     // Return false to cancel navigation
-    if (to.path === '/admin' && !isLogin) return false
+    if (to.path === '/admin' && !isAdmin) return false
 
     // Return string to redirect
     if (to.path === '/old') return '/new'
 
-    // Return undefined to allow navigation
+    // Return undefined to proceed
 })
+
+// Remove guard later
+removeGuard()
 ```
 
 ## Features
 
-- **Dual mode** — history mode (`history.pushState`, clean URLs) and hash mode (`#/path`)
-- **Dynamic parameters** — `/user/:id` auto-parsed to `params.id`
-- **Query parameters** — `?key=value` auto-parsed to `query`
-- **Navigation guards** — async guards, redirect, cancel
-- **Link interception** — automatically intercepts `<a>` tag clicks for client-side navigation
-- **Wildcard routes** — `path: '*'` catches all unmatched routes (404)
-- **Redirect** — route-level `redirect` field
-- **Base path** — history mode supports `base` config for subdirectory deployment
-- **Svelte 5** — built on Svelte 5 runes + stores
+✅ **Nested routes** — like Vue Router's `children`  
+✅ **Dual mode** — history (clean URLs) and hash (`#/path`)  
+✅ **Dynamic parameters** — `/user/:id` auto-parsed  
+✅ **Query parameters** — `?key=value` auto-parsed  
+✅ **Navigation guards** — async, redirect, cancel  
+✅ **Link interception** — automatic SPA navigation  
+✅ **Wildcard routes** — `path: '*'` for 404  
+✅ **Route redirect** — built-in redirect support  
+✅ **Base path** — subdirectory deployment support  
+✅ **Svelte 5** — uses runes and stores  
+✅ **TypeScript** — full TypeScript support  
+✅ **Lightweight** — ~3KB minified
 
-## Route Mode Comparison
+## Server Deployment (History Mode)
 
-| Feature | History Mode | Hash Mode |
-|---------|-------------|-----------|
-| URL format | `/about` | `#/about` |
-| Server config | Requires rewrite rules | Not needed |
-| SEO | Supported | Not supported |
-| Browser event | `popstate` | `hashchange` |
-| Use case | Production sites, SEO needed | Quick deploy, GitHub Pages |
-
-## Server Deployment
-
-### History Mode
-
-History mode uses `history.pushState` to manage URLs. On page refresh, the server needs to rewrite all route requests to `index.html`.
-
-#### Nginx
+### Nginx
 
 ```nginx
 server {
     listen 80;
     server_name example.com;
-    root /var/www/html;
-    index index.html;
+    root /var/www/dist;
 
     location / {
         try_files $uri $uri/ /index.html;
@@ -207,7 +323,7 @@ server {
 }
 ```
 
-#### Subdirectory deployment (e.g. `/app/`)
+**Subdirectory** (e.g., `/app/`):
 
 ```nginx
 location /app/ {
@@ -225,7 +341,7 @@ const router = createRouter({
 })
 ```
 
-#### Apache
+### Apache
 
 ```apache
 <IfModule mod_rewrite.c>
@@ -238,31 +354,34 @@ const router = createRouter({
 </IfModule>
 ```
 
-#### Node.js (Express)
+### Express (Node.js)
 
 ```js
-const express = require('express')
-const path = require('path')
+import express from 'express'
+import path from 'path'
+
 const app = express()
+const __dirname = path.dirname(new URL(import.meta.url).pathname)
 
 app.use(express.static(path.join(__dirname, 'dist')))
-
-app.get('*', (req, res) => {
-    res.sendFile(path.join(__dirname, 'dist', 'index.html'))
-})
-
+app.get('*', (req, res) => res.sendFile(path.join(__dirname, 'dist/index.html')))
 app.listen(3000)
 ```
 
-### Hash Mode
-
-Hash mode requires no server configuration. Simply deploy static files to any web server. Suitable for GitHub Pages, Netlify, and other static hosting services.
+### Vite + MPA (build.rollupOptions)
 
 ```ts
-const router = createRouter({
-    routes: [...],
-    mode: 'hash',
-})
+// vite.config.ts
+export default {
+    build: {
+        rollupOptions: {
+            input: {
+                main: 'index.html',
+                dashboard: 'dashboard.html',
+            }
+        }
+    }
+}
 ```
 
 ## License

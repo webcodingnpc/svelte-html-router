@@ -5,9 +5,10 @@ import type { Readable } from 'svelte/store'
 export interface RouteRecord {
     path: string
     name?: string
-    component: any
+    component?: any
     meta?: Record<string, any>
     redirect?: string
+    children?: RouteRecord[]
 }
 
 // 路由位置信息
@@ -17,7 +18,7 @@ export interface RouteLocation {
     params: Record<string, string>
     query: Record<string, string>
     meta: Record<string, any>
-    matched: RouteRecord | null
+    matched: RouteRecord[]  // 嵌套路由链
 }
 
 // 导航守卫
@@ -76,18 +77,94 @@ function matchPath(
     return params
 }
 
-/** 查找匹配路由 */
+/** 递归查找嵌套路由 */
+function findNestedRoute(
+    pathSegments: string[],
+    routes: RouteRecord[],
+    basePath: string = '',
+    parentParams: Record<string, string> = {},
+): { matched: RouteRecord[]; params: Record<string, string> } | null {
+    if (pathSegments.length === 0) return null
+
+    for (const route of routes) {
+        if (route.path === '*') continue
+
+        const routePath = route.path.startsWith('/') ? route.path : `/${route.path}`
+        const currentSegment = pathSegments[0]
+        const routeSegments = routePath.split('/').filter(Boolean)
+
+        // 尝试匹配当前段
+        if (routeSegments.length > 0) {
+            const routeSegment = routeSegments[0]
+            let isMatch = false
+            let paramName = ''
+
+            if (routeSegment.startsWith(':')) {
+                isMatch = true
+                paramName = routeSegment.slice(1)
+            } else if (routeSegment === currentSegment) {
+                isMatch = true
+            }
+
+            if (isMatch) {
+                const params = { ...parentParams }
+                if (paramName) params[paramName] = decodeURIComponent(currentSegment)
+
+                // 如果路由本身只有一段，检查是否有子路由
+                if (routeSegments.length === 1) {
+                    if (pathSegments.length === 1) {
+                        // 完全匹配，当前是最后一段
+                        return {
+                            matched: [route],
+                            params,
+                        }
+                    } else if (route.children && route.children.length > 0) {
+                        // 有子路由，继续递归
+                        const nestedResult = findNestedRoute(
+                            pathSegments.slice(1),
+                            route.children,
+                            basePath + routePath,
+                            params,
+                        )
+                        if (nestedResult) {
+                            return {
+                                matched: [route, ...nestedResult.matched],
+                                params: nestedResult.params,
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    return null
+}
+
+/** 查找匹配路由（修复为支持嵌套） */
 function findRoute(
     path: string,
     routes: RouteRecord[],
-): { route: RouteRecord; params: Record<string, string> } | null {
-    for (const route of routes) {
-        if (route.path === '*') continue
-        const params = matchPath(route.path, path)
-        if (params !== null) return { route, params }
+): { matched: RouteRecord[]; params: Record<string, string> } | null {
+    const pathSegments = path.split('/').filter(Boolean)
+    
+    if (pathSegments.length === 0) {
+        // 根路径 /
+        for (const route of routes) {
+            if (route.path === '/' || route.path === '') {
+                return { matched: [route], params: {} }
+            }
+        }
     }
+
+    const result = findNestedRoute(pathSegments, routes)
+    
+    if (result) return result
+
+    // 尝试通配符
     const wildcard = routes.find((r) => r.path === '*')
-    if (wildcard) return { route: wildcard, params: {} }
+    if (wildcard) return { matched: [wildcard], params: {} }
+
     return null
 }
 
@@ -98,13 +175,14 @@ function createLocation(
     routes: RouteRecord[],
 ): RouteLocation {
     const result = findRoute(path, routes)
+    const matched = result?.matched || []
     return {
         path,
-        name: result?.route.name || '',
+        name: matched[matched.length - 1]?.name || '',
         params: result?.params || {},
         query,
-        meta: result?.route.meta || {},
-        matched: result?.route || null,
+        meta: matched[matched.length - 1]?.meta || {},
+        matched,
     }
 }
 
