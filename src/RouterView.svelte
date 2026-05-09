@@ -1,18 +1,18 @@
 <script lang="ts">
     import { onDestroy, setContext, getContext } from "svelte";
-    import type { RouterInstance } from "./Router";
+    import type { RouterInstance, RouteLocation } from "./Router";
 
-    let { 
+    let {
         router: routerProp,
         name,
-    }: { 
-        router?: RouterInstance 
-        name?: string
+    }: {
+        router?: RouterInstance;
+        name?: string;
     } = $props();
 
     // 获取当前嵌套层级
     const nestLevel = getContext<number>("__router_nest_level__") ?? 0;
-    
+
     // 优先使用 prop 传入的 router，其次从 context 获取
     const router: RouterInstance =
         routerProp || getContext("svelte-html-router");
@@ -21,26 +21,32 @@
     setContext("__router_nest_level__", nestLevel + 1);
 
     let component = $state<any>(null);
-    let componentName = $state<string>("");
+    let routeProps = $state<Record<string, any>>({});
 
-    const unsubscribe = router.current.subscribe((route) => {
+    const unsubscribe = router.current.subscribe((route: RouteLocation) => {
         const matchedRoute = route.matched[nestLevel];
-        if (matchedRoute) {
+        if (matchedRoute && (!name || name === matchedRoute.name)) {
             component = matchedRoute.component || null;
-            componentName = matchedRoute.name || "";
+            // 处理 props 传递
+            if (matchedRoute.props === true) {
+                routeProps = { ...route.params };
+            } else if (typeof matchedRoute.props === 'function') {
+                routeProps = matchedRoute.props(route);
+            } else if (typeof matchedRoute.props === 'object') {
+                routeProps = { ...matchedRoute.props };
+            } else {
+                routeProps = {};
+            }
         } else {
             component = null;
-            componentName = "";
+            routeProps = {};
         }
     });
 
     onDestroy(unsubscribe);
 </script>
 
-{#if component && (!name || name === componentName)}
+{#if component}
     {@const Component = component}
-    <Component />
-{:else if !name && component}
-    {@const Component = component}
-    <Component />
+    <Component {...routeProps} />
 {/if}
