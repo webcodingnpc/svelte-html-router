@@ -317,6 +317,36 @@ console.log(location.path)     // '/dashboard/profile/42'
 console.log(location.fullPath) // '/dashboard/profile/42'
 ```
 
+## 懒加载
+
+支持动态 `import()` 实现代码分割：
+
+```ts
+{
+    path: '/admin',
+    name: 'admin',
+    component: () => import('./pages/Admin.svelte'),
+}
+```
+
+组件在导航完成前自动解析，`RouterView` 无缝配合。
+
+## 路由离开守卫
+
+注册离开守卫，可在离开路由前确认：
+
+```ts
+// 为命名路由注册离开守卫
+const removeGuard = router.onBeforeRouteLeave('dashboard-settings', (to, from) => {
+    if (hasUnsavedChanges) {
+        return false  // 取消导航
+    }
+})
+
+// 清理
+removeGuard()
+```
+
 ## 错误处理
 
 ```ts
@@ -324,6 +354,8 @@ router.onError((error) => {
     console.error('导航错误:', error)
 })
 ```
+
+守卫中的异常会被捕获并路由到 `onError` 处理器，然后中止导航。
 
 ## 就绪状态
 
@@ -374,6 +406,7 @@ console.log('路由已就绪')
 | `beforeResolve(guard)` | 全局解析守卫，返回移除函数 |
 | `afterEach(hook)` | 全局后置钩子，返回移除函数 |
 | `onError(handler)` | 错误处理器，返回移除函数 |
+| `onBeforeRouteLeave(name, guard)` | 路由离开守卫，返回移除函数 |
 | `resolve(to)` | 解析路由（不导航） |
 | `addRoute(route)` | 动态添加路由 |
 | `addRoute(parent, route)` | 按父路由名称添加子路由 |
@@ -478,7 +511,11 @@ enum NavigationFailureType {
 ✅ **Meta 合并** — 嵌套路由的 meta 自动合并  
 ✅ **Svelte 5** — 使用 runes 和 stores  
 ✅ **TypeScript** — 完整 TypeScript 支持  
-✅ **轻量级** — 压缩后 ~11KB
+✅ **懒加载** — `component: () => import('./Page.svelte')`  
+✅ **路由离开守卫** — `onBeforeRouteLeave()` 用于未保存变更确认  
+✅ **路由优先级** — 静态路径段优先于动态参数  
+✅ **守卫错误处理** — 异常被捕获并路由到 `onError`  
+✅ **轻量级** — 压缩后 ~13KB
 
 ## 服务器部署（History 模式）
 

@@ -73,7 +73,7 @@ export type ScrollBehavior = (
     to: RouteLocation,
     from: RouteLocation,
     savedPosition: { left: number; top: number } | null,
-) => { left?: number; top?: number; el?: string | Element; behavior?: ScrollBehavior } | void | Promise<any>
+) => { left?: number; top?: number; el?: string | Element; behavior?: 'auto' | 'smooth' | 'instant' } | void | Promise<any>
 
 /** 路由配置 */
 export interface RouterOptions {
@@ -123,11 +123,15 @@ function normalizeSlash(p: string): string {
     return '/' + p.split('/').filter(Boolean).join('/')
 }
 
-/** 构建完整路径字符串 */
+/** 构建完整路径字符串（query 按 key 排序保证一致性） */
 function buildFullPath(path: string, query: Record<string, string>, hash: string): string {
     let full = path
-    const qs = Object.keys(query).length ? '?' + new URLSearchParams(query).toString() : ''
-    full += qs
+    const keys = Object.keys(query).sort()
+    if (keys.length) {
+        const params = new URLSearchParams()
+        for (const k of keys) params.set(k, query[k])
+        full += '?' + params.toString()
+    }
     if (hash) full += hash
     return full
 }
@@ -158,13 +162,26 @@ function routeToSegments(path: string): string[] {
     return path.split('/').filter(Boolean)
 }
 
-/** 递归查找嵌套路由（支持默认子路由 path: ''、多段路径） */
+/** 计算路由匹配优先级分数（静态段 +3, 动态参数 +2, 精确消费 +10） */
+function matchScore(routeSegments: string[], consumed: number, totalPathSegs: number): number {
+    let score = 0
+    for (const seg of routeSegments) {
+        if (seg.startsWith(':')) score += 2
+        else score += 3
+    }
+    if (consumed === totalPathSegs) score += 10
+    return score
+}
+
+/** 递归查找嵌套路由（支持默认子路由、多段路径），选择最高优先级匹配 */
 function findNestedRoute(
     pathSegments: string[],
     offset: number,
     routes: RouteRecord[],
     parentParams: Record<string, string> = {},
-): { matched: RouteRecord[]; params: Record<string, string> } | null {
+): { matched: RouteRecord[]; params: Record<string, string>; score: number } | null {
+    let best: { matched: RouteRecord[]; params: Record<string, string>; score: number } | null = null
+
     for (const route of routes) {
         if (route.path === '*') continue
 
@@ -173,10 +190,9 @@ function findNestedRoute(
         // 默认子路由（path: '' 或 path: '/'）
         if (routeSegs.length === 0) {
             if (offset === pathSegments.length) {
-                // 已消费完所有段，匹配默认子路由
-                return { matched: [route], params: { ...parentParams } }
+                const candidate = { matched: [route], params: { ...parentParams }, score: 10 }
+                if (!best || candidate.score > best.score) best = candidate
             }
-            // 默认子路由但还有剩余段 — 跳过
             continue
         }
 
@@ -185,38 +201,75 @@ function findNestedRoute(
 
         const mergedParams = { ...parentParams, ...segMatch.params }
         const newOffset = offset + segMatch.consumed
+        const segScore = matchScore(routeSegs, newOffset, pathSegments.length)
 
         if (newOffset === pathSegments.length) {
-            // 完全消费所有段
             if (route.children && route.children.length > 0) {
-                // 检查是否有默认子路由
                 const defaultChild = findNestedRoute(pathSegments, newOffset, route.children, mergedParams)
                 if (defaultChild) {
-                    return {
+                    const candidate = {
                         matched: [route, ...defaultChild.matched],
                         params: defaultChild.params,
+                        score: segScore + defaultChild.score,
                     }
+                    if (!best || candidate.score > best.score) best = candidate
+                    continue
                 }
             }
-            return { matched: [route], params: mergedParams }
-        }
-
-        // 还有剩余段，尝试在子路由中继续匹配
-        if (route.children && route.children.length > 0) {
+            const candidate = { matched: [route], params: mergedParams, score: segScore }
+            if (!best || candidate.score > best.score) best = candidate
+        } else if (route.children && route.children.length > 0) {
             const nestedResult = findNestedRoute(pathSegments, newOffset, route.children, mergedParams)
             if (nestedResult) {
-                return {
+                const candidate = {
                     matched: [route, ...nestedResult.matched],
                     params: nestedResult.params,
+                    score: segScore + nestedResult.score,
                 }
+                if (!best || candidate.score > best.score) best = candidate
             }
         }
     }
 
+    return best
+}
+
+/** 递归在嵌套路由中查找别名匹配 */
+function findAlias(
+    path: string,
+    routes: RouteRecord[],
+    parentPath: string = '',
+): { matched: RouteRecord[]; params: Record<string, string> } | null {
+    const pathSegments = path.split('/').filter(Boolean)
+
+    for (const route of routes) {
+        if (route.alias) {
+            const aliases = Array.isArray(route.alias) ? route.alias : [route.alias]
+            for (const alias of aliases) {
+                const fullAlias = alias.startsWith('/')
+                    ? alias
+                    : (parentPath + '/' + alias)
+                const aliasSegs = routeToSegments(fullAlias)
+                const aliasMatch = matchSegments(aliasSegs, pathSegments, 0)
+                if (aliasMatch && aliasMatch.consumed === pathSegments.length) {
+                    return { matched: [route], params: aliasMatch.params }
+                }
+            }
+        }
+        if (route.children) {
+            const currentPath = route.path.startsWith('/')
+                ? route.path
+                : parentPath + '/' + route.path
+            const childResult = findAlias(path, route.children, normalizeSlash(currentPath))
+            if (childResult) {
+                return { matched: [route, ...childResult.matched], params: childResult.params }
+            }
+        }
+    }
     return null
 }
 
-/** 查找匹配路由 */
+/** 查找匹配路由（带优先级排序） */
 function findRoute(
     path: string,
     routes: RouteRecord[],
@@ -241,22 +294,12 @@ function findRoute(
         }
     }
 
-    // 尝试别名匹配
-    for (const route of routes) {
-        if (route.alias) {
-            const aliases = Array.isArray(route.alias) ? route.alias : [route.alias]
-            for (const alias of aliases) {
-                const aliasSegs = routeToSegments(alias)
-                const aliasMatch = matchSegments(aliasSegs, pathSegments, 0)
-                if (aliasMatch && aliasMatch.consumed === pathSegments.length) {
-                    return { matched: [route], params: aliasMatch.params }
-                }
-            }
-        }
-    }
+    // 别名匹配（递归搜索子路由）
+    const aliasResult = findAlias(path, routes)
+    if (aliasResult) return aliasResult
 
     const result = findNestedRoute(pathSegments, 0, routes)
-    if (result) return result
+    if (result) return { matched: result.matched, params: result.params }
 
     // 通配符
     const wildcard = routes.find((r) => r.path === '*')
@@ -304,6 +347,19 @@ function mergeMeta(matched: RouteRecord[]): Record<string, any> {
     return meta
 }
 
+/** 解析异步/懒加载组件 */
+async function resolveComponent(component: any): Promise<any> {
+    if (typeof component === 'function' && !component.prototype) {
+        try {
+            const resolved = await component()
+            return resolved?.default || resolved
+        } catch {
+            return component
+        }
+    }
+    return component
+}
+
 /** 构建路由位置对象 */
 function createLocation(
     path: string,
@@ -328,7 +384,7 @@ function createLocation(
     }
 }
 
-/** 将 RouteLocationRaw 标准化为字符串 */
+/** 将 RouteLocationRaw 标准化 */
 function normalizeTarget(
     raw: RouteLocationRaw,
     routes: RouteRecord[],
@@ -410,7 +466,8 @@ function createHashDriver() {
         const qs = Object.keys(query).length
             ? '?' + new URLSearchParams(query).toString()
             : ''
-        window.location.hash = `${path}${qs}${hash}`
+        const url = `${window.location.pathname}${window.location.search}#${path}${qs}${hash}`
+        history.pushState(null, '', url)
     }
 
     function replaceState(path: string, query: Record<string, string>, hash: string) {
@@ -489,6 +546,7 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
     const beforeResolveGuards: NavigationGuard[] = []
     const afterHooks: NavigationHookAfter[] = []
     const errorHandlers: ((error: any) => void)[] = []
+    const leaveGuards = new Map<string, NavigationGuard[]>()
     let navigating = false
     let ready = false
     let readyResolve: (() => void) | null = null
@@ -499,6 +557,34 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
     function resolve(raw: RouteLocationRaw): RouteLocation {
         const { path, query, hash } = normalizeTarget(raw, routes)
         return createLocation(path, query, hash, routes)
+    }
+
+    /** 执行守卫链，返回 null 表示放行 */
+    async function runGuards(
+        guards: NavigationGuard[],
+        to: RouteLocation,
+        from: RouteLocation,
+    ): Promise<{ redirect: RouteLocationRaw } | { abort: true } | null> {
+        for (const guard of guards) {
+            try {
+                const result = await guard(to, from)
+                if (result === false) {
+                    return { abort: true }
+                }
+                if (typeof result === 'string') {
+                    return { redirect: result }
+                }
+                if (typeof result === 'object' && result !== null && !Array.isArray(result)) {
+                    return { redirect: result as RouteLocationRaw }
+                }
+            } catch (err) {
+                for (const handler of errorHandlers) {
+                    try { handler(err) } catch (_) { /* ignore */ }
+                }
+                return { abort: true }
+            }
+        }
+        return null
     }
 
     /** 核心导航逻辑 */
@@ -513,12 +599,8 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
         const to = createLocation(path, query, hash, routes, redirectedFrom)
         const from = get(current)
 
-        // 重复导航检查
-        if (
-            to.path === from.path &&
-            to.fullPath === from.fullPath &&
-            !redirectedFrom
-        ) {
+        // 重复导航检查（fullPath 已按 key 排序）
+        if (to.fullPath === from.fullPath && !redirectedFrom) {
             return { type: NavigationFailureType.duplicated, from, to }
         }
 
@@ -531,54 +613,77 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
             // 处理重定向
             const lastMatched = to.matched[to.matched.length - 1]
             if (lastMatched?.redirect) {
-                navigating = false
                 const redirectTarget = typeof lastMatched.redirect === 'string'
                     ? lastMatched.redirect
                     : lastMatched.redirect
+                navigating = false
                 return navigate(redirectTarget, true, to)
             }
 
-            // 执行全局 beforeEach 守卫
-            for (const guard of beforeGuards) {
-                const result = await guard(to, from)
-                if (result === false) {
-                    return { type: NavigationFailureType.aborted, from, to }
-                }
-                if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                    navigating = false
-                    return navigate(result as RouteLocationRaw, doReplace)
+            // 解析异步组件
+            for (const matched of to.matched) {
+                if (matched.component) {
+                    matched.component = await resolveComponent(matched.component)
                 }
             }
 
-            // 执行路由级 beforeEnter 守卫
+            // beforeRouteLeave 守卫
+            const fromMatchedNames = from.matched.map(r => r.name).filter(Boolean) as string[]
+            const leaveGuardList: NavigationGuard[] = []
+            for (const name of fromMatchedNames) {
+                const guards = leaveGuards.get(name)
+                if (guards) leaveGuardList.push(...guards)
+            }
+            if (leaveGuardList.length > 0) {
+                const leaveResult = await runGuards(leaveGuardList, to, from)
+                if (leaveResult) {
+                    if ('abort' in leaveResult) {
+                        return { type: NavigationFailureType.aborted, from, to }
+                    }
+                    navigating = false
+                    return navigate(leaveResult.redirect, doReplace, redirectedFrom || to)
+                }
+            }
+
+            // 全局 beforeEach
+            const beforeResult = await runGuards(beforeGuards, to, from)
+            if (beforeResult) {
+                if ('abort' in beforeResult) {
+                    return { type: NavigationFailureType.aborted, from, to }
+                }
+                navigating = false
+                return navigate(beforeResult.redirect, doReplace, redirectedFrom || to)
+            }
+
+            // 路由级 beforeEnter
+            const enterGuardList: NavigationGuard[] = []
             for (const matched of to.matched) {
                 if (matched.beforeEnter) {
                     const guards = Array.isArray(matched.beforeEnter)
                         ? matched.beforeEnter
                         : [matched.beforeEnter]
-                    for (const guard of guards) {
-                        const result = await guard(to, from)
-                        if (result === false) {
-                            return { type: NavigationFailureType.aborted, from, to }
-                        }
-                        if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                            navigating = false
-                            return navigate(result as RouteLocationRaw, doReplace)
-                        }
+                    enterGuardList.push(...guards)
+                }
+            }
+            if (enterGuardList.length > 0) {
+                const enterResult = await runGuards(enterGuardList, to, from)
+                if (enterResult) {
+                    if ('abort' in enterResult) {
+                        return { type: NavigationFailureType.aborted, from, to }
                     }
+                    navigating = false
+                    return navigate(enterResult.redirect, doReplace, redirectedFrom || to)
                 }
             }
 
-            // 执行 beforeResolve 守卫
-            for (const guard of beforeResolveGuards) {
-                const result = await guard(to, from)
-                if (result === false) {
+            // beforeResolve
+            const resolveResult = await runGuards(beforeResolveGuards, to, from)
+            if (resolveResult) {
+                if ('abort' in resolveResult) {
                     return { type: NavigationFailureType.aborted, from, to }
                 }
-                if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                    navigating = false
-                    return navigate(result as RouteLocationRaw, doReplace)
-                }
+                navigating = false
+                return navigate(resolveResult.redirect, doReplace, redirectedFrom || to)
             }
 
             // 保存滚动位置
@@ -595,15 +700,15 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
 
             current.set(to)
 
-            // 执行 afterEach 钩子
+            // afterEach
             for (const hook of afterHooks) {
                 try { hook(to, from) } catch (_) { /* ignore */ }
             }
 
-            // 处理滚动
+            // 滚动
             handleScroll(scrollBehaviorFn, to, from, prevKey)
 
-            // 标记 ready
+            // ready
             if (!ready) {
                 ready = true
                 readyResolve?.()
@@ -623,73 +728,106 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
     /** popstate / hashchange 处理 */
     function onLocationChange() {
         if (navigating) return
+        navigating = true
+
         const { path, query, hash } = driver.getLocation()
         const to = createLocation(path, query, hash, routes)
         const from = get(current)
 
-        const lastMatched = to.matched[to.matched.length - 1]
-        if (lastMatched?.redirect) {
-            const redirectTarget = typeof lastMatched.redirect === 'string'
-                ? lastMatched.redirect
-                : lastMatched.redirect
-            navigate(redirectTarget, true)
-            return
-        }
-
         ;(async () => {
-            // beforeEach
-            for (const guard of beforeGuards) {
-                const result = await guard(to, from)
-                if (result === false) {
-                    const prev = get(current)
-                    driver.replaceState(prev.path, prev.query, prev.hash)
+            try {
+                // 重定向走守卫链
+                const lastMatched = to.matched[to.matched.length - 1]
+                if (lastMatched?.redirect) {
+                    const redirectTarget = typeof lastMatched.redirect === 'string'
+                        ? lastMatched.redirect
+                        : lastMatched.redirect
+                    navigating = false
+                    navigate(redirectTarget, true, to)
                     return
                 }
-                if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                    navigate(result as RouteLocationRaw, true)
-                    return
-                }
-            }
 
-            // beforeEnter
-            for (const matched of to.matched) {
-                if (matched.beforeEnter) {
-                    const guards = Array.isArray(matched.beforeEnter)
-                        ? matched.beforeEnter
-                        : [matched.beforeEnter]
-                    for (const guard of guards) {
-                        const result = await guard(to, from)
-                        if (result === false) {
-                            const prev = get(current)
-                            driver.replaceState(prev.path, prev.query, prev.hash)
-                            return
-                        }
-                        if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                            navigate(result as RouteLocationRaw, true)
-                            return
-                        }
+                // 解析异步组件
+                for (const matched of to.matched) {
+                    if (matched.component) {
+                        matched.component = await resolveComponent(matched.component)
                     }
                 }
-            }
 
-            // beforeResolve
-            for (const guard of beforeResolveGuards) {
-                const result = await guard(to, from)
-                if (result === false) {
+                // beforeRouteLeave
+                const fromMatchedNames = from.matched.map(r => r.name).filter(Boolean) as string[]
+                const leaveGuardList: NavigationGuard[] = []
+                for (const name of fromMatchedNames) {
+                    const guards = leaveGuards.get(name)
+                    if (guards) leaveGuardList.push(...guards)
+                }
+                if (leaveGuardList.length > 0) {
+                    const leaveResult = await runGuards(leaveGuardList, to, from)
+                    if (leaveResult) {
+                        const prev = get(current)
+                        driver.replaceState(prev.path, prev.query, prev.hash)
+                        if ('redirect' in leaveResult) {
+                            navigating = false
+                            navigate(leaveResult.redirect, true)
+                        }
+                        return
+                    }
+                }
+
+                // beforeEach
+                const beforeResult = await runGuards(beforeGuards, to, from)
+                if (beforeResult) {
                     const prev = get(current)
                     driver.replaceState(prev.path, prev.query, prev.hash)
+                    if ('redirect' in beforeResult) {
+                        navigating = false
+                        navigate(beforeResult.redirect, true)
+                    }
                     return
                 }
-                if (typeof result === 'string' || (typeof result === 'object' && result !== null && !Array.isArray(result))) {
-                    navigate(result as RouteLocationRaw, true)
+
+                // beforeEnter
+                const enterGuardList: NavigationGuard[] = []
+                for (const matched of to.matched) {
+                    if (matched.beforeEnter) {
+                        const guards = Array.isArray(matched.beforeEnter)
+                            ? matched.beforeEnter
+                            : [matched.beforeEnter]
+                        enterGuardList.push(...guards)
+                    }
+                }
+                if (enterGuardList.length > 0) {
+                    const enterResult = await runGuards(enterGuardList, to, from)
+                    if (enterResult) {
+                        const prev = get(current)
+                        driver.replaceState(prev.path, prev.query, prev.hash)
+                        if ('redirect' in enterResult) {
+                            navigating = false
+                            navigate(enterResult.redirect, true)
+                        }
+                        return
+                    }
+                }
+
+                // beforeResolve
+                const resolveResult = await runGuards(beforeResolveGuards, to, from)
+                if (resolveResult) {
+                    const prev = get(current)
+                    driver.replaceState(prev.path, prev.query, prev.hash)
+                    if ('redirect' in resolveResult) {
+                        navigating = false
+                        navigate(resolveResult.redirect, true)
+                    }
                     return
                 }
-            }
 
-            current.set(to)
+                current.set(to)
 
-            for (const hook of afterHooks) {
-                try { hook(to, from) } catch (_) { /* ignore */ }
+                for (const hook of afterHooks) {
+                    try { hook(to, from) } catch (_) { /* ignore */ }
+                }
+            } finally {
+                navigating = false
             }
         })()
     }
@@ -744,30 +882,24 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
         /** 当前路由模式 */
         mode,
 
-        /** 跳转（支持字符串或对象） */
+        /** 跳转 */
         push(to: RouteLocationRaw) {
             return navigate(to)
         },
 
-        /** 替换（支持字符串或对象） */
+        /** 替换 */
         replace(to: RouteLocationRaw) {
             return navigate(to, true)
         },
 
         /** 后退 */
-        back() {
-            history.back()
-        },
+        back() { history.back() },
 
         /** 前进 */
-        forward() {
-            history.forward()
-        },
+        forward() { history.forward() },
 
         /** 前进/后退 n 步 */
-        go(n: number) {
-            history.go(n)
-        },
+        go(n: number) { history.go(n) },
 
         /** 注册全局前置守卫 */
         beforeEach(guard: NavigationGuard) {
@@ -802,6 +934,22 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
             return () => {
                 const idx = errorHandlers.indexOf(handler)
                 if (idx > -1) errorHandlers.splice(idx, 1)
+            }
+        },
+
+        /** 注册路由离开守卫 */
+        onBeforeRouteLeave(routeName: string, guard: NavigationGuard) {
+            if (!leaveGuards.has(routeName)) {
+                leaveGuards.set(routeName, [])
+            }
+            leaveGuards.get(routeName)!.push(guard)
+            return () => {
+                const guards = leaveGuards.get(routeName)
+                if (guards) {
+                    const idx = guards.indexOf(guard)
+                    if (idx > -1) guards.splice(idx, 1)
+                    if (guards.length === 0) leaveGuards.delete(routeName)
+                }
             }
         },
 
@@ -869,8 +1017,7 @@ export function createRouter(options: RouterOptions | RouteRecord[]) {
             window.addEventListener(driver.eventName, onLocationChange)
             document.addEventListener('click', onLinkClick)
             const { path, query, hash } = driver.getLocation()
-            const fullPath = buildFullPath(path, query, hash)
-            navigate(fullPath, true)
+            navigate({ path, query, hash, replace: true })
         },
 
         /** 销毁 */

@@ -30,9 +30,9 @@
             // 处理 props 传递
             if (matchedRoute.props === true) {
                 routeProps = { ...route.params };
-            } else if (typeof matchedRoute.props === 'function') {
+            } else if (typeof matchedRoute.props === "function") {
                 routeProps = matchedRoute.props(route);
-            } else if (typeof matchedRoute.props === 'object') {
+            } else if (typeof matchedRoute.props === "object") {
                 routeProps = { ...matchedRoute.props };
             } else {
                 routeProps = {};

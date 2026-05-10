@@ -317,6 +317,36 @@ console.log(location.path)     // '/dashboard/profile/42'
 console.log(location.fullPath) // '/dashboard/profile/42'
 ```
 
+## Lazy Loading
+
+Supports dynamic `import()` for code splitting:
+
+```ts
+{
+    path: '/admin',
+    name: 'admin',
+    component: () => import('./pages/Admin.svelte'),
+}
+```
+
+Components are resolved before navigation completes — `RouterView` works seamlessly.
+
+## Route Leave Guards
+
+Register leave guards to confirm before leaving a route:
+
+```ts
+// Register a leave guard for a named route
+const removeGuard = router.onBeforeRouteLeave('dashboard-settings', (to, from) => {
+    if (hasUnsavedChanges) {
+        return false  // cancel navigation
+    }
+})
+
+// Clean up
+removeGuard()
+```
+
 ## Error Handling
 
 ```ts
@@ -324,6 +354,8 @@ router.onError((error) => {
     console.error('Navigation error:', error)
 })
 ```
+
+Guard exceptions are caught and routed through `onError` handlers, then navigation is aborted.
 
 ## Ready State
 
@@ -374,6 +406,7 @@ console.log('Router is ready')
 | `beforeResolve(guard)` | Global resolve guard, returns remove function |
 | `afterEach(hook)` | Global after hook, returns remove function |
 | `onError(handler)` | Error handler, returns remove function |
+| `onBeforeRouteLeave(name, guard)` | Route leave guard, returns remove function |
 | `resolve(to)` | Resolve route without navigating |
 | `addRoute(route)` | Add route dynamically |
 | `addRoute(parent, route)` | Add child route by parent name |
@@ -478,7 +511,11 @@ enum NavigationFailureType {
 ✅ **Meta merging** — nested route meta is merged  
 ✅ **Svelte 5** — uses runes and stores  
 ✅ **TypeScript** — full TypeScript support  
-✅ **Lightweight** — ~11KB minified
+✅ **Lazy loading** — `component: () => import('./Page.svelte')`  
+✅ **Route leave guards** — `onBeforeRouteLeave()` for unsaved changes confirmation  
+✅ **Route priority** — static segments prioritized over dynamic params  
+✅ **Guard error handling** — exceptions caught and routed to `onError`  
+✅ **Lightweight** — ~13KB minified
 
 ## Server Deployment (History Mode)
 
